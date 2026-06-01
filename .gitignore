@@ -1,0 +1,63 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+*.whl
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / Frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# --- Environment / Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Database ---
+data/bangumi.db
+data/bangumi.db-journal
+data/bangumi.db-wal
+data/bangumi.db-shm
+
+# --- Logs ---
+data/logs/
+*.log
+
+# --- IDE / Editor ---
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Alembic ---
+backend/alembic/versions/*.pyc
+
+# --- OS ---
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Data cache (large files, keep sample only) ---
+data/cache/
+dialogue_file/
+
+# --- Docker ---
+docker-data/
+
+#对话
+dialogue_file/

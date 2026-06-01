@@ -1,0 +1,16 @@
+{
+  "last_sync": "2026-05-31T14:06:28.758233",
+  "last_version": "local:./dialogue_file/dump-2026-05-26.210457Z",
+  "total_records": 6210600,
+  "table_counts": {
+    "subjects": 639483,
+    "persons": 93789,
+    "characters": 212291,
+    "episodes": 1630598,
+    "subject_relations": 887862,
+    "subject_characters": 425366,
+    "subject_persons": 1986980,
+    "person_characters": 273852,
+    "person_relations": 60379
+  }
+}
