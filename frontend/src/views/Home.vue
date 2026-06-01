@@ -271,45 +271,55 @@ function watchedCount(item) {
 }
 
 async function toggleWatchingEp(item, ep) {
-  const key = String(ep.sort)
   const record = item.record
-  const currentEpStatus = { ...(record.ep_status || {}) }
-  const currentStatus = currentEpStatus[key]
-  const newStatus = currentStatus === '看过' ? null : '看过'
+  const clickedSort = Math.floor(ep.sort)
+  const oldProgress = record.progress
+  const oldEpStatus = { ...(record.ep_status || {}) }
 
-  // 乐观更新
-  const newEpStatus = { ...currentEpStatus }
-  if (newStatus === null) {
-    delete newEpStatus[key]
-  } else {
-    newEpStatus[key] = newStatus
+  // 点击当前进度格 → 取消全部进度；否则设置进度为该格 sort
+  const newProgress = (oldProgress === clickedSort) ? 0 : clickedSort
+
+  // 乐观更新：本地计算 ep_status
+  const newEpStatus = {}
+  for (const epItem of item.episodes) {
+    if (epItem.sort <= newProgress) {
+      newEpStatus[String(epItem.sort)] = '看过'
+    }
+  }
+  // 保留超出进度的非「看过」状态（如 抛弃）
+  for (const [k, v] of Object.entries(oldEpStatus)) {
+    if (parseFloat(k) > newProgress && v !== '看过') {
+      newEpStatus[k] = v
+    }
   }
   record.ep_status = newEpStatus
-
-  const watched = Object.values(newEpStatus).filter(s => s === '看过').length
-  record.progress = watched
+  record.progress = newProgress
 
   try {
     if (record.id) {
-      await updateRecord(record.id, {
-        ep_status: newEpStatus,
-        progress: watched,
-        status: watched > 0 ? 2 : record.status,  // 保持在看在状态
+      // 只发 progress，让后端生成 ep_status，保证双向统一
+      const res = await updateRecord(record.id, {
+        progress: newProgress,
+        status: newProgress > 0 ? 2 : record.status,
       })
+      // 用服务端返回值校准本地状态
+      record.ep_status = res.ep_status || {}
+      record.progress = res.progress
     } else {
-      // 自动创建记录
+      // 自动创建记录 — 只发 progress
       const newRec = await createRecord({
         subject_id: record.subject_id,
-        status: 2,  // 在看
-        progress: watched,
-        ep_status: newEpStatus,
+        status: 2,
+        progress: newProgress,
       })
       record.id = newRec.id
+      record.ep_status = newRec.ep_status || {}
+      record.progress = newRec.progress
     }
   } catch {
     // 回滚
-    record.ep_status = currentEpStatus
-    record.progress = watchedCount(item)
+    record.ep_status = oldEpStatus
+    record.progress = oldProgress
   }
 }
 

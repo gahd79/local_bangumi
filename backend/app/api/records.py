@@ -25,6 +25,31 @@ DEFAULT_USER_ID = 1  # 默认用户 ID，预留多用户支持
 BGM_STATUS_MAP = {1: 1, 2: 3, 3: 2, 4: 4, 5: 5}
 
 
+def _format_ep_key(sort_val: float) -> str:
+    """将剧集 sort 值格式化为统一的 key。
+
+    Python str(1.0) → '1.0'，但 JS String(1.0) → '1'。
+    统一使用：整数用 '1'，真正有小数的用 '3.5'。
+    """
+    if sort_val == int(sort_val):
+        return str(int(sort_val))
+    return str(sort_val)
+
+
+def _normalize_ep_status_keys(ep_status: dict) -> dict:
+    """将 ep_status 中所有 key 归一化（兼容旧 '1.0' 格式 → '1'）。"""
+    if not ep_status:
+        return {}
+    result = {}
+    for k, v in ep_status.items():
+        try:
+            sort_val = float(k)
+            result[_format_ep_key(sort_val)] = v
+        except (ValueError, TypeError):
+            result[k] = v
+    return result
+
+
 def _get_episode_counts(db: Session, subject_ids: list[int]) -> dict[int, int]:
     """批量获取条目剧集数。"""
     if not subject_ids:
@@ -57,14 +82,17 @@ def _sync_ep_status_from_progress(db: Session, subject_id: int, progress: int, e
         .all()
     )
 
+    # 先归一化旧 key（兼容 '1.0' → '1'）
+    normalized_existing = _normalize_ep_status_keys(existing_ep_status or {})
+
     new_ep_status = {}
     for (sort_val,) in episodes:
-        key = str(sort_val)
+        key = _format_ep_key(sort_val)
         if sort_val <= progress:
             new_ep_status[key] = "看过"
-        elif key in (existing_ep_status or {}):
-            # 保留之前手动设置的超过进度的状态
-            new_ep_status[key] = existing_ep_status[key]
+        elif key in normalized_existing and normalized_existing[key] != "看过":
+            # 仅保留非「看过」的手动状态（如 抛弃），清除被进度覆盖的旧「看过」
+            new_ep_status[key] = normalized_existing[key]
 
     return new_ep_status
 
@@ -84,7 +112,7 @@ def _enrich_record(record: UserRecord, episode_count: int = 0) -> dict:
         "comment": record.comment,
         "tags": record.tags or [],
         "private": record.private or False,
-        "ep_status": record.ep_status or {},
+        "ep_status": _normalize_ep_status_keys(record.ep_status or {}),
         "episode_count": episode_count,
         "start_date": record.start_date,
         "finish_date": record.finish_date,
@@ -139,6 +167,8 @@ def create_record(
         )
     if create_data.get("ep_status") is None:
         create_data["ep_status"] = {}
+    else:
+        create_data["ep_status"] = _normalize_ep_status_keys(create_data["ep_status"])
     db_record = UserRecord(user_id=user_id, **create_data)
     db.add(db_record)
     db.commit()
@@ -167,6 +197,11 @@ def update_record(
         update_data["ep_status"] = _sync_ep_status_from_progress(
             db, db_record.subject_id, update_data["progress"], db_record.ep_status or {}
         )
+    elif "progress" in update_data and update_data["progress"] == 0 and "ep_status" not in update_data:
+        # progress 明确归零时清空逐集状态
+        update_data["ep_status"] = {}
+    elif "ep_status" in update_data and update_data["ep_status"] is not None:
+        update_data["ep_status"] = _normalize_ep_status_keys(update_data["ep_status"])
 
     for key, value in update_data.items():
         setattr(db_record, key, value)

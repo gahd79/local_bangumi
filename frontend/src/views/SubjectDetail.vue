@@ -270,6 +270,11 @@ async function saveRecord() {
     const recs = Array.isArray(records) ? records : []
     const match = recs.find((r) => r.subject_id === subject.value.bangumi_id)
     existingRecord.value = match || null
+    // 同步更新网格状态
+    if (match) {
+      recordEpStatus.value = match.ep_status || {}
+      recordForm.progress = match.progress
+    }
   } catch {
     // 错误提示由 API 拦截器统一处理
   } finally {
@@ -278,52 +283,56 @@ async function saveRecord() {
 }
 
 async function onToggleEpisode(ep) {
-  // 切换剧集的观看状态
-  const key = String(ep.sort)
-  const currentStatus = recordEpStatus.value[key]
-  const newStatus = currentStatus === '看过' ? null : '看过'
+  // 点击格子 → 设置进度为该格 sort（floor），由后端生成 ep_status，保证双向统一
+  const clickedSort = Math.floor(ep.sort)
+  const oldProgress = recordForm.progress
+  const oldEpStatus = { ...recordEpStatus.value }
 
-  // 乐观更新 UI
-  const newEpStatus = { ...recordEpStatus.value }
-  if (newStatus === null) {
-    delete newEpStatus[key]
-  } else {
-    newEpStatus[key] = newStatus
+  // 点击当前进度格 → 取消全部进度；否则设置进度为该格 sort
+  const newProgress = (oldProgress === clickedSort) ? 0 : clickedSort
+
+  // 乐观更新：本地计算 ep_status
+  const episodes = subject.value?.episodes || []
+  const newEpStatus = {}
+  for (const epItem of episodes) {
+    if (epItem.sort <= newProgress) {
+      newEpStatus[String(epItem.sort)] = '看过'
+    }
+  }
+  for (const [k, v] of Object.entries(oldEpStatus)) {
+    if (parseFloat(k) > newProgress && v !== '看过') {
+      newEpStatus[k] = v
+    }
   }
   recordEpStatus.value = newEpStatus
+  recordForm.progress = newProgress
 
-  // 计算已看集数
-  const watchedCount = Object.values(newEpStatus).filter(s => s === '看过').length
-
-  // 更新/创建记录
   try {
     if (existingRecord.value) {
-      await updateRecord(existingRecord.value.id, {
-        ep_status: newEpStatus,
-        progress: watchedCount,
-        status: watchedCount > 0 ? existingRecord.value.status : existingRecord.value.status,
+      // 只发 progress，让后端生成 ep_status
+      const res = await updateRecord(existingRecord.value.id, {
+        progress: newProgress,
+        status: newProgress > 0 ? existingRecord.value.status : existingRecord.value.status,
       })
+      recordEpStatus.value = res.ep_status || {}
+      existingRecord.value = { ...existingRecord.value, ep_status: res.ep_status, progress: res.progress }
+      recordForm.progress = res.progress
     } else {
-      // 自动创建记录
+      // 自动创建记录 — 只发 progress
       const newRec = await createRecord({
         subject_id: subject.value.bangumi_id,
-        status: 2,  // 在看
-        progress: watchedCount,
-        ep_status: newEpStatus,
+        status: 2,
+        progress: newProgress,
       })
       existingRecord.value = newRec
+      recordEpStatus.value = newRec.ep_status || {}
       recordForm.status = 2
-      recordForm.progress = watchedCount
+      recordForm.progress = newRec.progress
     }
-    existingRecord.value = {
-      ...existingRecord.value,
-      ep_status: newEpStatus,
-      progress: watchedCount,
-    }
-    recordForm.progress = watchedCount
   } catch {
     // 回滚
-    recordEpStatus.value = recordEpStatus.value
+    recordEpStatus.value = oldEpStatus
+    recordForm.progress = oldProgress
   }
 }
 
