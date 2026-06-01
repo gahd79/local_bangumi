@@ -135,6 +135,8 @@
 </template>
 
 <script setup>
+defineOptions({ name: 'SubjectList' })
+
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getSubjects } from '@/api/subjects'

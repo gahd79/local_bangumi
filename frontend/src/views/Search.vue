@@ -114,6 +114,8 @@
 </template>
 
 <script setup>
+defineOptions({ name: 'Search' })
+
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'

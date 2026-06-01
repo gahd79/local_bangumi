@@ -184,6 +184,8 @@
 </template>
 
 <script setup>
+defineOptions({ name: 'Home' })
+
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getSubjects } from '@/api/subjects'

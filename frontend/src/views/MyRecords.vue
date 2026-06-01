@@ -236,6 +236,8 @@
 </template>
 
 <script setup>
+defineOptions({ name: 'MyRecords' })
+
 import { ref, reactive, computed, onMounted } from 'vue'
 import {
   getRecords,
