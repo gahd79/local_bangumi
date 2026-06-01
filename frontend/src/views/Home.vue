@@ -184,8 +184,6 @@
 </template>
 
 <script setup>
-defineOptions({ name: 'Home' })
-
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getSubjects } from '@/api/subjects'
@@ -195,16 +193,24 @@ import SubjectCard from '@/components/SubjectCard.vue'
 import RatingInput from '@/components/RatingInput.vue'
 import { ElMessage } from 'element-plus'
 
+// ─── 模块级缓存 ───
+const _topSubjects = ref([])
+const _latestSubjects = ref([])
+const _syncStatus = ref(null)
+const _recordStats = ref(null)
+const _watchingItems = ref([])
+const _loaded = ref(false)
+
 const router = useRouter()
 const searchKeyword = ref('')
-const topSubjects = ref([])
-const latestSubjects = ref([])
-const topLoading = ref(true)
-const latestLoading = ref(true)
-const syncStatus = ref(null)
-const recordStats = ref(null)
-const watchingItems = ref([])
-const watchingLoading = ref(false)
+const topSubjects = _topSubjects
+const latestSubjects = _latestSubjects
+const topLoading = ref(!_loaded.value)
+const latestLoading = ref(!_loaded.value)
+const syncStatus = _syncStatus
+const recordStats = _recordStats
+const watchingItems = _watchingItems
+const watchingLoading = ref(!_loaded.value)
 
 // 首页快速收藏弹窗
 const homeRecordVisible = ref(false)
@@ -218,6 +224,10 @@ const lastSyncText = computed(() => {
 })
 
 onMounted(async () => {
+  if (_loaded.value) {
+    // 返回首页直接恢复缓存，不重查
+    return
+  }
   // 并行加载
   try {
     const [topRes, latestRes, syncRes, statsRes, watchingRes] = await Promise.all([
@@ -232,6 +242,7 @@ onMounted(async () => {
     syncStatus.value = syncRes.data || syncRes
     recordStats.value = statsRes.data || statsRes
     watchingItems.value = Array.isArray(watchingRes) ? watchingRes : []
+    _loaded.value = true
   } catch (e) {
     console.error('Home page load error:', e)
   } finally {

@@ -93,6 +93,17 @@
       </el-table-column>
     </el-table>
 
+    <!-- 分页 -->
+    <div class="pagination-wrapper" v-if="recordsTotal > pageSize">
+      <el-pagination
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="recordsTotal"
+        layout="prev, pager, next, total"
+        @current-change="onPageChange"
+      />
+    </div>
+
     <!-- 编辑弹窗 -->
     <el-dialog
       v-model="editVisible"
@@ -236,8 +247,6 @@
 </template>
 
 <script setup>
-defineOptions({ name: 'MyRecords' })
-
 import { ref, reactive, computed, onMounted } from 'vue'
 import {
   getRecords,
@@ -252,11 +261,17 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import ScoreDisplay from '@/components/ScoreDisplay.vue'
 import RatingInput from '@/components/RatingInput.vue'
 
-const records = ref([])
+// ─── 模块级缓存 ───
+const _records = ref([])
+const _stats = ref(null)
+const _activeStatus = ref('')
+const _loaded = ref(false)
+
+const records = _records
 const loading = ref(false)
 const saving = ref(false)
-const stats = ref(null)
-const activeStatus = ref('')
+const stats = _stats
+const activeStatus = _activeStatus
 const editVisible = ref(false)
 const showAddDialog = ref(false)
 const editingRecord = ref(null)
@@ -267,6 +282,10 @@ const importFileList = ref([])
 const importFileData = ref(null)
 const importing = ref(false)
 const importResult = ref(null)
+
+const currentPage = ref(1)
+const pageSize = 20
+const recordsTotal = ref(0)
 
 const editForm = reactive({
   subject_id: null,
@@ -283,6 +302,11 @@ const editMaxProgress = computed(() => {
 })
 
 onMounted(() => {
+  if (_loaded.value) {
+    // 返回时恢复缓存，不重查
+    loading.value = false
+    return
+  }
   fetchRecords()
   fetchStats()
 })
@@ -290,10 +314,19 @@ onMounted(() => {
 async function fetchRecords() {
   loading.value = true
   try {
-    const params = {}
+    const params = { page: currentPage.value, limit: pageSize }
     if (activeStatus.value) params.status = Number(activeStatus.value)
     const data = await getRecords(params)
-    records.value = Array.isArray(data) ? data : []
+    if (data && data.items) {
+      records.value = data.items
+      recordsTotal.value = data.total
+    } else if (Array.isArray(data)) {
+      // 兼容旧格式
+      records.value = data
+      recordsTotal.value = data.length
+    }
+    _records.value = records.value
+    _loaded.value = true
   } catch {
     records.value = []
   } finally {
@@ -305,12 +338,19 @@ async function fetchStats() {
   try {
     const statsData = await apiClient.get('/records/stats')
     stats.value = statsData
+    _stats.value = statsData
   } catch {
     stats.value = null
   }
 }
 
 function onStatusChange() {
+  currentPage.value = 1
+  fetchRecords()
+}
+
+function onPageChange(page) {
+  currentPage.value = page
   fetchRecords()
 }
 
@@ -339,6 +379,7 @@ async function doSave() {
     return
   }
   saving.value = true
+  const isCreate = !editingRecord.value?.id
   try {
     if (editingRecord.value?.id) {
       await updateRecord(editingRecord.value.id, { ...editForm })
@@ -350,6 +391,8 @@ async function doSave() {
     editVisible.value = false
     showAddDialog.value = false
     resetEdit()
+    // 新增记录时回到第一页，确保能看到新记录
+    if (isCreate) currentPage.value = 1
     await fetchRecords()
     await fetchStats()
   } catch {
@@ -363,6 +406,10 @@ async function doDelete(id) {
   try {
     await deleteRecord(id)
     ElMessage.success('记录已删除')
+    // 如果当前页只剩一条且不是第一页，回退一页
+    if (records.value.length <= 1 && currentPage.value > 1) {
+      currentPage.value--
+    }
     await fetchRecords()
     await fetchStats()
   } catch {
@@ -494,5 +541,10 @@ async function doImport() {
 }
 .import-result {
   margin-top: 16px;
+}
+.pagination-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
 }
 </style>

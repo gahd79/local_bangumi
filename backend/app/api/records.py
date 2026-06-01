@@ -121,7 +121,7 @@ def _enrich_record(record: UserRecord, episode_count: int = 0) -> dict:
     }
 
 
-@router.get("", response_model=List[UserRecordRead])
+@router.get("")
 def list_records(
     status: Optional[int] = Query(
         None, description="过滤状态：1=想看, 2=在看, 3=看过, 4=搁置, 5=抛弃"
@@ -130,24 +130,42 @@ def list_records(
         None, description="按条目 ID（bangumi_id）过滤"
     ),
     user_id: int = Query(DEFAULT_USER_ID, description="用户 ID"),
+    page: Optional[int] = Query(None, ge=1, description="页码（提供则启用分页）"),
+    limit: Optional[int] = Query(None, ge=1, le=100, description="每页数量"),
     db: Session = Depends(get_db),
 ):
     """获取当前用户的观看记录列表（含条目名称）。"""
-    query = (
+    base_query = (
         db.query(UserRecord)
         .filter(UserRecord.user_id == user_id)
     )
     if status is not None:
-        query = query.filter(UserRecord.status == status)
+        base_query = base_query.filter(UserRecord.status == status)
     if subject_id is not None:
-        query = query.filter(UserRecord.subject_id == subject_id)
-    records = query.order_by(UserRecord.updated_at.desc()).all()
+        base_query = base_query.filter(UserRecord.subject_id == subject_id)
+
+    total = base_query.count()
+
+    if page is not None and limit is not None:
+        records = (
+            base_query.order_by(UserRecord.updated_at.desc())
+            .offset((page - 1) * limit)
+            .limit(limit)
+            .all()
+        )
+    else:
+        records = base_query.order_by(UserRecord.updated_at.desc()).all()
 
     # 批量获取剧集数
     subject_ids = list(set(r.subject_id for r in records))
     ep_counts = _get_episode_counts(db, subject_ids)
 
-    return [_enrich_record(r, ep_counts.get(r.subject_id, 0)) for r in records]
+    items = [_enrich_record(r, ep_counts.get(r.subject_id, 0)) for r in records]
+
+    # 分页模式返回带 total 的对象；非分页模式保持兼容，返回数组
+    if page is not None and limit is not None:
+        return {"items": items, "total": total, "page": page, "limit": limit}
+    return items
 
 
 @router.post("", response_model=UserRecordRead, status_code=201)

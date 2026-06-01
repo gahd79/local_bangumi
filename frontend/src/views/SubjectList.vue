@@ -2,7 +2,8 @@
   <div class="subject-list-page">
     <!-- 筛选面板 — 默认展开 -->
     <SubjectFilters
-      v-model="filters"
+      :model-value="filters"
+      @update:model-value="onFilterUpdate"
       @apply="onFilterApply"
       @reset="onFilterReset"
     />
@@ -135,8 +136,6 @@
 </template>
 
 <script setup>
-defineOptions({ name: 'SubjectList' })
-
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getSubjects } from '@/api/subjects'
@@ -146,19 +145,15 @@ import SubjectCard from '@/components/SubjectCard.vue'
 import SubjectFilters from '@/components/SubjectFilters.vue'
 import RatingInput from '@/components/RatingInput.vue'
 
-const route = useRoute()
-const router = useRouter()
-
-const items = ref([])
-const total = ref(0)
-const loading = ref(false)
-const currentPage = ref(1)
-const limit = 25
-const viewMode = ref('grid')
-const sortKey = ref('score')
-const sortOrder = ref('desc')
-
-const filters = reactive({
+// ─── 模块级缓存（组件卸载后状态不丢失，返回列表无需重查）───
+const _cacheQuery = ref(null)  // 上次请求的 query 快照
+const _items = ref([])
+const _total = ref(0)
+const _currentPage = ref(1)
+const _viewMode = ref('grid')
+const _sortKey = ref('score')
+const _sortOrder = ref('desc')
+const _filters = reactive({
   type: undefined,
   search: '',
   year: undefined,
@@ -169,12 +164,27 @@ const filters = reactive({
   nsfw: undefined,
   series: undefined,
 })
+const _loaded = ref(false)
+
+const route = useRoute()
+const router = useRouter()
+
+// 从模块级状态取别名，组件内直接使用
+const items = _items
+const total = _total
+const loading = ref(false)
+const currentPage = _currentPage
+const limit = 25
+const viewMode = _viewMode
+const sortKey = _sortKey
+const sortOrder = _sortOrder
+const filters = _filters
 
 // 快速收藏
 const quickRecordVisible = ref(false)
 const quickSubject = ref(null)
 const quickSaving = ref(false)
-const quickIsFullEdit = ref(false)  // 是否为完整编辑模式
+const quickIsFullEdit = ref(false)
 const quickForm = reactive({ status: 1, progress: 0, rating: null, comment: '' })
 
 const quickDialogTitle = computed(() => {
@@ -202,7 +212,6 @@ function loadFromURL() {
 // 将状态持久化到 URL
 function saveToURL() {
   const q = { ...route.query }
-  // 筛选参数
   const allFilters = {
     type: filters.type,
     search: filters.search || undefined,
@@ -218,7 +227,6 @@ function saveToURL() {
     page: currentPage.value > 1 ? currentPage.value : undefined,
     view: viewMode.value !== 'grid' ? viewMode.value : undefined,
   }
-  // 清理
   Object.keys(allFilters).forEach((k) => {
     if (allFilters[k] !== undefined && allFilters[k] !== '' && allFilters[k] !== null) {
       q[k] = String(allFilters[k])
@@ -231,13 +239,22 @@ function saveToURL() {
 
 onMounted(() => {
   loadFromURL()
+  // 如果缓存有效且 URL 未变，跳过请求直接恢复
+  const currentQuery = JSON.stringify(route.query)
+  if (_loaded.value && _cacheQuery.value === currentQuery) {
+    loading.value = false
+    return
+  }
   fetchData()
 })
 
 // 当路由 query 变化时（如浏览器前进/后退）
 watch(() => route.query, () => {
   loadFromURL()
-  fetchData()
+  const currentQuery = JSON.stringify(route.query)
+  if (_cacheQuery.value !== currentQuery) {
+    fetchData()
+  }
 })
 
 async function fetchData() {
@@ -257,11 +274,21 @@ async function fetchData() {
     const data = await getSubjects(params)
     items.value = data.items
     total.value = data.total
+    // 写入缓存
+    _items.value = data.items
+    _total.value = data.total
+    _cacheQuery.value = JSON.stringify(route.query)
+    _loaded.value = true
   } catch (e) {
     console.error('Failed to load subjects:', e)
   } finally {
     loading.value = false
   }
+}
+
+function onFilterUpdate(newFilters) {
+  // 用 Object.assign 更新现有的 reactive 对象，避免 const 重赋值
+  Object.assign(filters, newFilters)
 }
 
 function onFilterApply(newFilters) {

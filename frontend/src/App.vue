@@ -48,11 +48,7 @@
 
     <!-- 主内容区 -->
     <el-main class="app-main">
-      <router-view v-slot="{ Component }">
-        <keep-alive :include="cachedViews">
-          <component :is="Component" />
-        </keep-alive>
-      </router-view>
+      <router-view />
     </el-main>
   </el-container>
 </template>
@@ -68,9 +64,6 @@ const route = useRoute()
 const sidebarCollapsed = ref(false)
 const windowWidth = ref(window.innerWidth)
 const syncInfo = ref(null)
-
-// KeepAlive 缓存：列表页组件返回时不重新加载
-const cachedViews = ['Home', 'SubjectList', 'Search', 'MyRecords']
 
 const isMobile = computed(() => windowWidth.value < 768)
 const sidebarWidth = computed(() => {

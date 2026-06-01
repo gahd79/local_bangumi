@@ -114,8 +114,6 @@
 </template>
 
 <script setup>
-defineOptions({ name: 'Search' })
-
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
@@ -123,20 +121,34 @@ import apiClient from '@/api/request'
 import SubjectCard from '@/components/SubjectCard.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 
+// ─── 模块级缓存 ───
+const _query = ref('')
+const _scope = ref('subjects')
+const _results = ref({})
+const _totals = ref({})
+const _hasSearched = ref(false)
+const _activeTab = ref('subjects')
+const _page = ref(1)
+const _loaded = ref(false)
+
 const route = useRoute()
 const router = useRouter()
 
-const query = ref('')
-const scope = ref('subjects')
-const results = ref({})
-const totals = ref({})
+const query = _query
+const scope = _scope
+const results = _results
+const totals = _totals
 const loading = ref(false)
-const hasSearched = ref(false)
-const page = ref(1)
+const hasSearched = _hasSearched
+const page = _page
 const limit = 20
-const activeTab = ref('subjects')
+const activeTab = _activeTab
 
 onMounted(() => {
+  if (_loaded.value) {
+    // 返回时恢复缓存状态，不重查
+    return
+  }
   if (route.query.q) {
     query.value = route.query.q
     scope.value = route.query.scope || 'subjects'
@@ -175,6 +187,7 @@ async function doSearch() {
     })
     results.value = data.results || {}
     totals.value = data.totals || {}
+    _loaded.value = true
   } catch (e) {
     ElMessage.warning('搜索失败，请重试')
   } finally {
