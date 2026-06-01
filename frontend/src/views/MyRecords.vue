@@ -265,6 +265,8 @@ import RatingInput from '@/components/RatingInput.vue'
 const _records = ref([])
 const _stats = ref(null)
 const _activeStatus = ref('')
+const _currentPage = ref(1)
+const _recordsTotal = ref(0)
 const _loaded = ref(false)
 
 const records = _records
@@ -272,6 +274,8 @@ const loading = ref(false)
 const saving = ref(false)
 const stats = _stats
 const activeStatus = _activeStatus
+const currentPage = _currentPage
+const recordsTotal = _recordsTotal
 const editVisible = ref(false)
 const showAddDialog = ref(false)
 const editingRecord = ref(null)
@@ -283,9 +287,7 @@ const importFileData = ref(null)
 const importing = ref(false)
 const importResult = ref(null)
 
-const currentPage = ref(1)
 const pageSize = 20
-const recordsTotal = ref(0)
 
 const editForm = reactive({
   subject_id: null,
@@ -325,7 +327,11 @@ async function fetchRecords() {
       records.value = data
       recordsTotal.value = data.length
     }
+    // 同步写入模块级缓存
     _records.value = records.value
+    _recordsTotal.value = recordsTotal.value
+    _activeStatus.value = activeStatus.value
+    _currentPage.value = currentPage.value
     _loaded.value = true
   } catch {
     records.value = []
@@ -346,6 +352,7 @@ async function fetchStats() {
 
 function onStatusChange() {
   currentPage.value = 1
+  _activeStatus.value = activeStatus.value
   fetchRecords()
 }
 
