@@ -38,6 +38,37 @@ def _get_episode_counts(db: Session, subject_ids: list[int]) -> dict[int, int]:
     return {s_id: cnt for s_id, cnt in rows}
 
 
+def _sync_ep_status_from_progress(db: Session, subject_id: int, progress: int, existing_ep_status: dict) -> dict:
+    """根据进度值自动生成逐集状态。
+
+    规则：
+    - 查询条目的所有剧集，获取 sort 值列表
+    - sort <= progress 的剧集标记为「看过」
+    - sort > progress 的剧集保留原有 ep_status（如有）
+    - 不存在的剧集号不生成条目
+    """
+    if progress <= 0:
+        return existing_ep_status or {}
+
+    episodes = (
+        db.query(Episode.sort)
+        .filter(Episode.subject_id == subject_id)
+        .order_by(Episode.sort.asc())
+        .all()
+    )
+
+    new_ep_status = {}
+    for (sort_val,) in episodes:
+        key = str(sort_val)
+        if sort_val <= progress:
+            new_ep_status[key] = "看过"
+        elif key in (existing_ep_status or {}):
+            # 保留之前手动设置的超过进度的状态
+            new_ep_status[key] = existing_ep_status[key]
+
+    return new_ep_status
+
+
 def _enrich_record(record: UserRecord, episode_count: int = 0) -> dict:
     """将 UserRecord 转为包含条目名称的字典。"""
     return {
@@ -101,6 +132,11 @@ def create_record(
     create_data = record.model_dump()
     if create_data.get("tags") is None:
         create_data["tags"] = []
+    # 双向同步：如果设置了 progress 但未显式传入 ep_status，自动生成
+    if create_data.get("progress", 0) > 0 and create_data.get("ep_status") is None:
+        create_data["ep_status"] = _sync_ep_status_from_progress(
+            db, create_data["subject_id"], create_data["progress"], {}
+        )
     if create_data.get("ep_status") is None:
         create_data["ep_status"] = {}
     db_record = UserRecord(user_id=user_id, **create_data)
@@ -124,7 +160,15 @@ def update_record(
     if not db_record:
         raise HTTPException(status_code=404, detail="记录不存在")
 
-    for key, value in record.model_dump(exclude_unset=True).items():
+    update_data = record.model_dump(exclude_unset=True)
+
+    # 双向同步：如果 progress 被设为 >0 但未显式传入 ep_status，自动生成逐集状态
+    if update_data.get("progress", 0) > 0 and "ep_status" not in update_data:
+        update_data["ep_status"] = _sync_ep_status_from_progress(
+            db, db_record.subject_id, update_data["progress"], db_record.ep_status or {}
+        )
+
+    for key, value in update_data.items():
         setattr(db_record, key, value)
 
     db.commit()
@@ -340,12 +384,16 @@ def import_records(
             )
 
             if existing:
-                # 更新已有记录（保留本地最新数据）
+                # 更新已有记录
                 existing.status = local_status
                 if rating is not None:
                     existing.rating = rating
                 if progress:
                     existing.progress = progress
+                    # 双向同步：导入时 progress > 0 则自动生成 ep_status
+                    existing.ep_status = _sync_ep_status_from_progress(
+                        db, subject_id, progress, existing.ep_status or {}
+                    )
                 if comment:
                     existing.comment = comment
                 if tags:
@@ -353,6 +401,11 @@ def import_records(
                 existing.private = private
                 updated += 1
             else:
+                ep_status_synced = None
+                if progress > 0:
+                    ep_status_synced = _sync_ep_status_from_progress(
+                        db, subject_id, progress, {}
+                    )
                 new_record = UserRecord(
                     user_id=user_id,
                     subject_id=subject_id,
@@ -362,6 +415,7 @@ def import_records(
                     comment=comment,
                     tags=tags,
                     private=private,
+                    ep_status=ep_status_synced or {},
                 )
                 db.add(new_record)
                 created += 1
